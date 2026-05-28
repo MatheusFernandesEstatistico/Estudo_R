@@ -5,7 +5,6 @@ set_flextable_defaults(
   border.color = "black", big.mark = "")
 
 # Função Tabela de Freq. Absoluta e Relativa 
-
 fafr = function(Var1, nome_var, ordenar = TRUE) {
   FA = table(Var1, useNA = "ifany") 
 
@@ -56,4 +55,53 @@ fafr = function(Var1, nome_var, ordenar = TRUE) {
 }
 
 # Função Tabela de Cruzamentos
+cruzamentos = function(Var1, Var2, nomev1, nomev2, data, n_cruzamento = "") {
 
+  c1 = data %>%
+    count({{ Var1 }}, {{ Var2 }}, name = "Freq") %>%
+    filter(Freq > 0)
+
+  total = sum(c1$Freq)
+
+  c2 = c1 %>%
+    mutate(
+      p                   = Freq / total * 100,
+      porcentagem_formatada = paste0(round(p, 1), "%")) %>%
+    arrange(desc(Freq))
+
+  linha_total = tibble(
+    {{ Var1 }} := "Total",
+    {{ Var2 }} := "",
+    Freq                  = total,
+    p                     = 100,
+    porcentagem_formatada = "100,0%")
+
+  c3 = bind_rows(c2, linha_total) %>%
+    select({{ Var1 }}, {{ Var2 }}, Freq, porcentagem_formatada)
+
+  caption_label = if (n_cruzamento != "") {
+    paste("Tabela de Cruzamento", n_cruzamento, "-", nomev1, "x", nomev2)
+  } else {
+    paste("Tabela de Cruzamento -", nomev1, "x", nomev2)
+  }
+
+  c3 %>%
+    flextable() %>%
+    bold(part = "header") %>%
+    set_header_labels(
+      values = setNames(
+        list(nomev1, nomev2, "Frequência Absoluta", "Frequência Relativa"),
+        c(as_name(enquo(Var1)), as_name(enquo(Var2)), "Freq", "porcentagem_formatada"))) %>%
+    fontsize(part = "header", size = 12) %>%
+    set_table_properties(layout = "autofit", width = 0) %>%
+    set_caption(
+      caption = as_paragraph(
+        as_chunk(caption_label,
+                 props = fp_text_default(bold = TRUE)))) %>%
+    align(align = "right", part = "all") %>%
+    align(j = 1, align = "left", part = "all") %>%
+    bg(i = nrow(c3), bg = "#83dea5", part = "body") %>%
+    bold(i = nrow(c3))
+}
+
+# Função tabela de associações (Teste Qui-Quadrado)
