@@ -1,157 +1,279 @@
 library(tidyverse)
+library(readxl)   # substitui xlsx (mais leve, sem dependência de Java)
 library(vcd)
+library(officer)  # necessário para fp_text_default() nas captions
+
 library(flextable)
-set_flextable_defaults( 
-  font.family = "Calibri (Corpo)", font.size = 10, 
-  border.color = "black", big.mark = "")
+set_flextable_defaults(
+  font.family  = "Calibri (Corpo)",
+  font.size    = 10,
+  border.color = "black",
+  big.mark     = "")
 
-# Função Tabela de Freq. Absoluta e Relativa 
-fafr = function(Var1, nome_var, ordenar = TRUE) {
-  FA = table(Var1, useNA = "ifany") 
+n_tabela     <- 0
+n_graf       <- 0
+n_cruzamento <- 0
+n_qq         <- 0
 
-  d1 = data.frame(
-    Categoria = names(FA),
-    Freq_Abs = as.integer(FA),
-    Freq_Rel = as.numeric(prop.table(FA)),
-    stringsAsFactors = FALSE)
 
-  d1 = d1 %>% 
-    add_row(
-      Categoria = "Total",
-      Freq_Abs = sum(d1$Freq_Abs),
-      Freq_Rel = sum(d1$Freq_Rel),
-      .after = nrow(.))
-  
-  d2 = d1 %>% 
-    mutate(
-      Freq_Rel_Pct = Freq_Rel * 100,
-      Freq_Rel_Fmt = paste0(sprintf("%.1f", Freq_Rel * 100), "%")
-    ) %>% 
-    select(Categoria, Freq_Abs, Freq_Rel_Fmt)
-
-  if(ordenar) {
-    d2 = d2 %>% 
-      mutate(is_total = Categoria == "Total") %>%
-      arrange(is_total, desc(Freq_Abs)) %>%
-      select(-is_total)
+# Auxiliar: monta uma flextable com caption padrão 
+.ft_caption <- function(ft, titulo, subtitulo = NULL, bold = TRUE) {
+  partes <- list(
+    as_chunk(titulo, props = fp_text_default(bold = bold, font.size = 10))
+  )
+  if (!is.null(subtitulo)) {
+    partes <- c(partes, list(
+      as_chunk("\n"),
+      as_chunk(subtitulo, props = fp_text_default(italic = TRUE, font.size = 9))
+    ))
   }
-  
-  ft = d2 %>% flextable() %>% bold(part = "header") %>% 
-    set_header_labels(
-      Categoria = nome_var, 
-      Freq_Abs = "Frequência Absoluta", 
-      Freq_Rel_Fmt = "Frequência Relativa") %>%
-    fontsize(part = "header", size = 12) %>% 
-    set_table_properties(layout = "autofit", width = 0) %>% 
-    set_caption(
-      caption = as_paragraph(
-        as_chunk(
-          paste("Tabela", n_tabela , "-", nome_var), props = fp_text_default(bold = TRUE)))) %>% 
-    align(align = "right", part = "all") %>% 
-    align(j = "Categoria", align = "left", part = "all") %>% 
-    bg(i = nrow(d2), bg = "#83dea5", part = "body") %>% 
-    bold(i = nrow(d2))
-  
-  return(ft)
+  set_caption(ft, caption = do.call(as_paragraph, partes))
 }
 
-# Função Tabela de Cruzamentos
-cruzamentos = function(Var1, Var2, nomev1, nomev2, data, n_cruzamento = "") {
+# Auxiliar: monta tabela FA/FR padronizada 
+.tabela_fafr <- function(variavel) {
+  FA <- table(variavel)
+  FR <- FA / sum(FA)
+  d  <- data.frame(FA, FR) # colunas: Var1, Freq, Freq.1
+  
+  d <- d %>%
+    add_row(
+      Var1   = "Total",
+      Freq   = sum(d$Freq),
+      Freq.1 = sum(d$Freq.1),
+      .after = nrow(.)
+    ) %>%
+    mutate(porcentagem_formatada = paste0(round(Freq.1 * 100, 1), "%"))
+  
+  d %>%
+    select(Var1, Freq, porcentagem_formatada) %>%
+    filter(Freq > 0) %>%
+    slice(c(order(-Freq[seq_len(n() - 1)]), n()))
+}
 
-  c1 = data %>%
-    count({{ Var1 }}, {{ Var2 }}, name = "Freq") %>%
-    filter(Freq > 0)
 
-  total = sum(c1$Freq)
+# Função Tabela de Freq. Absoluta e Relativa
+fafe <- function(variavel, nome_var) {
+  n_tabela <<- n_tabela + 1
+  
+  .tabela_fafr(variavel) %>%
+    flextable() %>%
+    bold(part = "header") %>%
+    set_header_labels(
+      Var1                  = nome_var,
+      Freq                  = "Frequência Absoluta",
+      porcentagem_formatada = "Frequência Relativa"
+    ) %>%
+    fontsize(part = "header", size = 12) %>%
+    set_table_properties(layout = "autofit", width = 0) %>%
+    .ft_caption(paste("Tabela", n_tabela, "-", nome_var)) %>%
+    align(align = "right", part = "all") %>%
+    align(j = "Var1", align = "left", part = "all") %>%
+    bg(i = ~ Var1 == "Total", bg = "#83dea5", part = "body") %>%
+    bold(i = ~ Var1 == "Total")
+}
 
-  c2 = c1 %>%
+
+
+# Função Tabela de Cruzamentos 
+cruzamentos <- function(Var1, Var2, nomev1, nomev2) {
+  n_cruzamento <<- n_cruzamento + 1
+  
+  c1 <- xtabs(~ Var1 + Var2) %>% as.data.frame()
+  
+  c2 <- c1 %>%
     mutate(
-      p                   = Freq / total * 100,
-      porcentagem_formatada = paste0(round(p, 1), "%")) %>%
-    arrange(desc(Freq))
-
-  linha_total = tibble(
-    {{ Var1 }} := "Total",
-    {{ Var2 }} := "",
-    Freq                  = total,
-    p                     = 100,
-    porcentagem_formatada = "100,0%")
-
-  c3 = bind_rows(c2, linha_total) %>%
-    select({{ Var1 }}, {{ Var2 }}, Freq, porcentagem_formatada)
-
-  caption_label = if (n_cruzamento != "") {
-    paste("Tabela de Cruzamento", n_cruzamento, "-", nomev1, "x", nomev2)
-  } else {
-    paste("Tabela de Cruzamento -", nomev1, "x", nomev2)
-  }
-
+      FR                    = Freq / sum(Freq),
+      p                     = FR * 100,
+      porcentagem_formatada = paste0(round(p, 1), "%")
+    ) %>%
+    add_row(
+      Var1                  = "Total",
+      Var2                  = "",
+      Freq                  = sum(.$Freq),
+      p                     = sum(.$p),
+      porcentagem_formatada = paste0(round(sum(.$p), 1), "%"),
+      .after                = nrow(.)
+    )
+  
+  c3 <- c2 %>%
+    select(Var1, Var2, Freq, porcentagem_formatada) %>%
+    filter(Freq > 0) %>%
+    slice(c(order(-Freq[seq_len(n() - 1)]), n()))
+  
   c3 %>%
     flextable() %>%
     bold(part = "header") %>%
     set_header_labels(
-      values = setNames(
-        list(nomev1, nomev2, "Frequência Absoluta", "Frequência Relativa"),
-        c(as_name(enquo(Var1)), as_name(enquo(Var2)), "Freq", "porcentagem_formatada"))) %>%
+      Var1                  = nomev1,
+      Var2                  = nomev2,
+      Freq                  = "Frequência Absoluta",
+      porcentagem_formatada = "Frequência Relativa"
+    ) %>%
     fontsize(part = "header", size = 12) %>%
     set_table_properties(layout = "autofit", width = 0) %>%
-    set_caption(
-      caption = as_paragraph(
-        as_chunk(caption_label,
-                 props = fp_text_default(bold = TRUE)))) %>%
+    .ft_caption(paste("Tabela de Cruzamento", n_cruzamento, "-", nomev1, "x", nomev2)) %>%
     align(align = "right", part = "all") %>%
-    align(j = 1, align = "left", part = "all") %>%
-    bg(i = nrow(c3), bg = "#83dea5", part = "body") %>%
-    bold(i = nrow(c3))
+    align(j = "Var1", align = "left", part = "all") %>%
+    bg(i = ~ Var1 == "Total", bg = "#83dea5", part = "body") %>%
+    bold(i = ~ Var1 == "Total")
 }
 
-# Função tabela de associações (Teste Qui-Quadrado)
-associacao = function(Var1, Var2, nomev1, nomev2, alpha = 0.05, n_qq = NULL) {
-  stopifnot(
-    "Var1 e Var2 devem ter o mesmo comprimento" = length(Var1) == length(Var2),
-    "Var1 não pode ser NULL" = !is.null(Var1),
-    "Var2 não pode ser NULL" = !is.null(Var2)
-  )
 
-  aux = data.frame(Var1 = Var1, Var2 = Var2)
-  tabela = table(aux)
-
-  teste_qui  = chisq.test(tabela, simulate.p.value = TRUE)
-  stats_assoc = assocstats(tabela) 
-
-  cramer_fmt = if (teste_qui$p.value > alpha) {
-    "-"
-  } else {
-    formatC(stats_assoc$cramer, digits = 4, format = "f")
-  }
-
-  resultado = data.frame(
+# Função tabela de associações (Qui-quadrado + V de Cramér) 
+associacao <- function(Var1, Var2, nomev1, nomev2) {
+  n_qq <<- n_qq + 1
+  
+  tabela     <- table(data.frame(Var1, Var2))
+  teste_qui  <- chisq.test(tabela, simulate.p.value = TRUE)
+  assoc_stat <- assocstats(tabela)
+  
+  data.frame(
     "Estatística de Teste" = teste_qui$statistic,
     "P-Valor"              = teste_qui$p.value,
-    "V de Cramér"          = cramer_fmt,
+    "V de Cramér"          = ifelse(
+      teste_qui$p.value > 0.05, "-",
+      as.character(round(assoc_stat$cramer, 4))
+    ),
     check.names = FALSE
-  )
-
-  caption_label = if (!is.null(n_qq)) {
-    paste("Tabela", n_qq, "de Associação")
-  } else {
-    "Tabela de Associação"
-  }
-
-  ft = resultado %>%
+  ) %>%
     flextable() %>%
     set_table_properties(layout = "autofit", width = 0) %>%
-    set_caption(
-      as_paragraph(
-        as_chunk(caption_label,
-                 props = fp_text_default(color = "black", bold = TRUE, font.size = 10)),
-        as_chunk("\n"),
-        as_chunk(paste("Associação entre", nomev1, "e", nomev2),
-                 props = fp_text_default(color = "black", italic = TRUE, font.size = 9))
-      )
+    .ft_caption(
+      titulo    = paste("Tabela", n_qq, "de Associação"),
+      subtitulo = paste("Associação entre", nomev1, "e", nomev2)
     ) %>%
     align(align = "center", part = "all")
+}
 
-  return(ft)
+
+# Função tabela de associações (Teste de Fisher) 
+fisher_test <- function(Var1, Var2, nomev1, nomev2) {
+  n_qq <<- n_qq + 1
+  
+  tabela <- table(data.frame(Var1, Var2))
+  teste  <- fisher.test(tabela, simulate.p.value = TRUE)
+  
+  data.frame("P-Valor" = teste$p.value, check.names = FALSE) %>%
+    flextable() %>%
+    set_table_properties(layout = "autofit", width = 0.4) %>%
+    .ft_caption(
+      titulo    = paste("Tabela", n_qq, "de Associação (Fisher)"),
+      subtitulo = paste("Associação entre", nomev1, "e", nomev2)
+    ) %>%
+    align(align = "center", part = "all")
+}
+
+
+# Função tabela de Correlação de Pearson 
+correlacao <- function(Var1, Var2, nomev1, nomev2) {
+  n_qq <<- n_qq + 1
+  
+  cor_test <- cor.test(Var1, Var2)
+  
+  data.frame(
+    "Estatística de Teste" = cor_test$statistic,
+    "P-Valor"              = cor_test$p.value,
+    "Correlação de Pearson" = cor(Var1, Var2, use = "complete.obs"),
+    check.names = FALSE
+  ) %>%
+    flextable() %>%
+    set_table_properties(layout = "autofit", width = 0) %>%
+    .ft_caption(
+      titulo    = paste("Tabela", n_qq, "de Correlação"),
+      subtitulo = paste("Correlação entre", nomev1, "e", nomev2)
+    ) %>%
+    align(align = "center", part = "all")
+}
+
+
+# Função tabela de Teste de normalidade (Shapiro-Wilk) 
+normalidade <- function(variavel) {
+  swt <- shapiro.test(variavel)
+  
+  data.frame(
+    "Estatística W *" = swt$statistic,
+    "P-Valor **"      = format(swt$p.value, scientific = TRUE, digits = 4),
+    check.names = FALSE
+  ) %>%
+    flextable() %>%
+    set_table_properties(layout = "autofit", width = 0) %>%
+    .ft_caption(
+      titulo    = "Teste de Shapiro-Wilk",
+      subtitulo = "Resultado da normalidade dos dados"
+    ) %>%
+    align(align = "center", part = "all") %>%
+    add_footer_lines(values = c(
+      "* Quanto mais próximo de 1, mais normal é a distribuição.",
+      "** P-Valor > 0,05: Não rejeita H₀ → dados normais"
+    )) %>%
+    fontsize(part = "footer", size = 8) %>%
+    color(part = "footer", color = "black") %>%
+    padding(part = "footer", padding = 1)
+}
+
+
+# Função tabela de Medidas descritivas 
+medidas <- function(colunas) {
+  n_tabela <<- n_tabela + 1
+  
+  db %>%
+    select(all_of(colunas)) %>%
+    mutate(across(everything(), as.numeric)) %>%
+    select(where(is.numeric)) %>%
+    map_dfr(~ data.frame(
+      Media   = mean(., na.rm = TRUE),
+      Mediana = median(., na.rm = TRUE),
+      Desvio  = sd(., na.rm = TRUE),
+      Q1      = quantile(., 0.25, na.rm = TRUE),
+      Q3      = quantile(., 0.75, na.rm = TRUE)
+    ), .id = "Coluna") %>%
+    mutate(across(where(is.numeric), ~ round(., 2))) %>%
+    flextable() %>%
+    bold(part = "header") %>%
+    fontsize(part = "header", size = 12) %>%
+    set_table_properties(layout = "autofit", width = 0) %>%
+    .ft_caption(paste("Tabela", n_tabela, "- Medidas Descritivas")) %>%
+    align(align = "center", part = "all") %>%
+    align(j = "Coluna", align = "left", part = "all")
+}
+
+
+# Função tabela de Teste de Wilcoxon pareado (pré × pós) 
+wilcox_pareado <- function(pre, pos, nome_variavel) {
+  n_qq <<- n_qq + 1
+  
+  teste <- wilcox.test(pre, pos, paired = TRUE, exact = FALSE)
+  
+  data.frame(
+    "V de Wilcoxon" = teste$statistic,
+    "P-Valor"       = teste$p.value,
+    "Mediana Pré"   = median(pre, na.rm = TRUE),
+    "Mediana Pós"   = median(pos, na.rm = TRUE),
+    check.names = FALSE
+  ) %>%
+    flextable() %>%
+    set_table_properties(layout = "autofit", width = 0) %>%
+    .ft_caption(
+      titulo    = paste("Tabela", n_qq, "- Teste de Wilcoxon Pareado"),
+      subtitulo = nome_variavel
+    ) %>%
+    align(align = "center", part = "all")
+}
+
+
+# Auxiliar: histograma padrão 
+histograma <- function(variavel, nome_var, bins = 20) {
+  n_graf <<- n_graf + 1
+  
+  ggplot(data.frame(x = variavel), aes(x = x)) +
+    geom_histogram(bins = bins, fill = "#4b9b69", color = "white", na.rm = TRUE) +
+    labs(
+      title = paste("Gráfico", n_graf, "- Distribuição de", nome_var),
+      x     = nome_var,
+      y     = "Frequência"
+    ) +
+    theme_minimal() +
+    theme(plot.title = element_text(size = 12, face = "bold", hjust = 0.5))
 }
 
