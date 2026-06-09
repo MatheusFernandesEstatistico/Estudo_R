@@ -5,11 +5,6 @@ author: "Matheus Fernandes"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE)
-```
-
-
 # O que é o Project Euler? 
 
 O Projeto Euler é uma série de problemas desafiadores de matemática/programação que exigem mais do que apenas conhecimentos matemáticos para serem resolvidos. Embora a matemática ajude a encontrar métodos elegantes e eficientes, o uso de um computador e habilidades de programação serão necessários para solucionar a maioria dos problemas.
@@ -22,7 +17,31 @@ A motivação para o início e a continuidade do Projeto Euler é proporcionar u
 Essa é a minha versão tanto das resoluções do problemas de 1 a 990, quanto das traduções dos títulos e enunciados.
 
 
-# 1. 
+# 1. Múltiplos de 3 ou 5
+
+Se listarmos todos os números naturais menores que 10 que são múltiplos de 3 ou 5, obtemos 3, 5, 6 e 9. A soma desses múltiplos é 23. Encontre a soma de todos os múltiplos de 3 ou 5 menores que 1000. 
+
+```{r}
+soma_3e5 <- function(n, k) {
+  m <- floor((n - 1) / k)
+  return(k * m * (m + 1) / 2)
+}
+
+n <- 1000
+soma <- soma_3e5(n, 3) + soma_3e5(n, 5) - soma_3e5(n, 15)
+print(soma)
+
+```
+
+\
+
+# 2. Números pares de Fibonacci 
+
+Cada novo termo na sequência de Fibonacci é gerado pela soma dos dois termos anteriores. Começando com 1 e 2, os primeiros 10 termos serão:
+
+1, 2, 3, 5, 8, 13, 21, 34, 55, 89, ... 
+
+Considerando os termos na sequência de Fibonacci cujos valores não excedem quatro milhões, encontre a soma dos termos de valor par.
 
 ```{r}
 
@@ -31,28 +50,33 @@ Essa é a minha versão tanto das resoluções do problemas de 1 a 990, quanto d
 
 \
 
-# 2. 
+# 3. Maior fator primo
+
+Os fatores primos de 13195 são 5, 7, 13 e 29. Qual é o maior fator primo do número 600851475143?
+
 ```{r}
 
 
 ```
 
+\
+
+# 4. Maior número palíndromo (também chamado de capicua) 
+
+Um número palíndromo é lido da mesma forma de trás para frente. O maior palíndromo formado pelo produto de dois números de 2 dígitos é 9009 = 91x99. Encontre o maior palíndromo formado pelo produto de dois números de 3 dígitos.
+
+```{r}
 
 
+```
+
+\
+
+# 5. Menor múltiplo
+
+2520 é o menor número que pode ser dividido por todos os números de 1 a 10 sem deixar resto. Qual é o menor número positivo que é divisível por todos os números de 1 a 20?
+
+```{r}
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+```
